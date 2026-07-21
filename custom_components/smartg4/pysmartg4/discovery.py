@@ -50,6 +50,38 @@ class DiscoveredDevice:
         }
 
 
+def merge_device_lists(
+    existing: list[dict[str, Any]], found: list[dict[str, Any]]
+) -> tuple[list[dict[str, Any]], int]:
+    """Merge a new scan into a stored device list (as_dict shape).
+
+    Never drops stored devices — scan replies are lossy, so absence from
+    one scan means nothing. Returns (merged, number_of_new_devices).
+    """
+    by_address = {d["address"]: dict(d) for d in existing}
+    new = 0
+    for device in found:
+        current = by_address.get(device["address"])
+        if current is None:
+            by_address[device["address"]] = dict(device)
+            new += 1
+            continue
+        if device.get("remark"):
+            current["remark"] = device["remark"]
+        if device.get("mac"):
+            current["mac"] = device["mac"]
+        current["device_type"] = device["device_type"]
+        current["type_name"] = device["type_name"]
+        current["opcodes_seen"] = sorted(
+            set(current.get("opcodes_seen", []))
+            | set(device.get("opcodes_seen", []))
+        )
+    merged = sorted(
+        by_address.values(), key=lambda d: (d["subnet"], d["device"])
+    )
+    return merged, new
+
+
 async def discover(
     bus: SmartG4Bus,
     duration: float = 15.0,

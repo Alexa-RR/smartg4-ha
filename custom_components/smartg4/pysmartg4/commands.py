@@ -293,6 +293,17 @@ COMMANDS: dict[int, dict[str, Any]] = {
             "data": p[6:].hex(),
         },
     },
+    # Restore: announce/commit with a page count; ack 0xDC17. Page data is
+    # staged by sending 0xDC15-format frames to the device (see backup.py).
+    0xDC16: {
+        "name": "DeviceRestore",
+        "encode": lambda d: int(d["packages"]).to_bytes(2, "big"),
+        "response": 0xDC17,
+    },
+    0xDC17: {
+        "name": "DeviceRestoreResponse",
+        "parse": lambda p: {"raw": p.hex()},
+    },
     # 0xF003 Read MAC address — answers 0xF004 with MAC + remark (name).
     0xF003: {"name": "ReadMACAddress", "response": 0xF004},
     0xF004: {

@@ -117,6 +117,55 @@ def _text(image: bytes, offset: int, length: int) -> str:
     )
 
 
+def apply_button(
+    backup: DeviceBackup,
+    index: int,
+    label: str | None,
+    commands: list[ButtonCommand],
+) -> list["FlashPage"]:
+    """Apply a button edit to a backup image and return ONLY the flash
+    pages whose bytes changed (what a restore must write). `index` is
+    1-based; `label=None` keeps the existing label."""
+    from .backup import FlashPage
+
+    if not 1 <= index <= BUTTON_COUNT:
+        raise ValueError(f"button index {index} out of range")
+    if len(commands) * RECORD_LEN > COMMAND_STRIDE:
+        raise ValueError(f"too many commands ({len(commands)})")
+
+    image = bytearray(backup.bank(1))
+    if label is not None:
+        encoded = label.encode("ascii", "replace")[:LABEL_LEN].ljust(
+            LABEL_LEN, b" "
+        )
+        offset = LABELS_OFFSET + (index - 1) * LABEL_LEN
+        image[offset : offset + LABEL_LEN] = encoded
+
+    slot = bytearray(COMMAND_STRIDE)  # zero padding terminates the list
+    position = 0
+    for command in commands:
+        slot[position : position + RECORD_LEN] = command.encode()
+        position += RECORD_LEN
+    offset = COMMANDS_OFFSET + (index - 1) * COMMAND_STRIDE
+    image[offset : offset + COMMAND_STRIDE] = slot
+
+    changed: list[FlashPage] = []
+    for page in backup.pages:
+        if page.flag != 1:
+            continue
+        new_data = bytes(image[page.address : page.address + len(page.data)])
+        if new_data != page.data:
+            changed.append(
+                FlashPage(
+                    number=page.number,
+                    flag=page.flag,
+                    address=page.address,
+                    data=new_data,
+                )
+            )
+    return changed
+
+
 def decode_panel(backup: DeviceBackup) -> dict[str, Any]:
     """Decode a DDP backup into {name, buttons: [...]}."""
     image = backup.bank(1)

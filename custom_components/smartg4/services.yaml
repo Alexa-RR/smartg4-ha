@@ -1,0 +1,16 @@
+rescan:
+  name: Rescan bus
+  description: >-
+    Scan the S-BUS for devices and add any newly found modules to the
+    integration. Existing devices are never removed (scan replies are
+    lossy on this bus).
+  fields:
+    duration:
+      name: Scan duration
+      description: How long to scan, in seconds.
+      default: 30
+      selector:
+        number:
+          min: 5
+          max: 120
+          unit_of_measurement: seconds

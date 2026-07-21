@@ -6,7 +6,13 @@ from typing import Any
 
 import voluptuous as vol
 
-from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+    OptionsFlow,
+)
+from homeassistant.core import callback
 
 from .const import (
     CONF_DEVICES,
@@ -33,6 +39,11 @@ class SmartG4ConfigFlow(ConfigFlow, domain=DOMAIN):
     """Ask for the gateway, then discover the bus (30 s by default)."""
 
     VERSION = 1
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> "SmartG4OptionsFlow":
+        return SmartG4OptionsFlow()
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -65,4 +76,34 @@ class SmartG4ConfigFlow(ConfigFlow, domain=DOMAIN):
                     )
         return self.async_show_form(
             step_id="user", data_schema=STEP_USER_SCHEMA, errors=errors
+        )
+
+
+class SmartG4OptionsFlow(OptionsFlow):
+    """Configure → rescan the bus and add newly found devices."""
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            from . import _async_rescan_entry
+
+            entry = self.config_entry
+            if getattr(entry, "runtime_data", None) is None:
+                return self.async_abort(reason="not_loaded")
+            await _async_rescan_entry(
+                self.hass, entry, user_input[CONF_SCAN_DURATION]
+            )
+            return self.async_create_entry(title="", data={})
+        return self.async_show_form(
+            step_id="init",
+            data_schema=vol.Schema(
+                {
+                    vol.Required(
+                        CONF_SCAN_DURATION, default=DEFAULT_SCAN_DURATION
+                    ): vol.All(vol.Coerce(int), vol.Range(min=5, max=120))
+                }
+            ),
+            errors=errors,
         )

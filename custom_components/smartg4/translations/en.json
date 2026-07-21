@@ -17,5 +17,19 @@
     "abort": {
       "already_configured": "This gateway is already configured."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Rescan the bus",
+        "description": "Scan the S-BUS again and add newly found modules. Existing devices are kept even if they miss this scan (replies are lossy). New modules appear as devices after an automatic reload.",
+        "data": {
+          "scan_duration": "Bus scan duration (seconds)"
+        }
+      }
+    },
+    "abort": {
+      "not_loaded": "The integration is not loaded — fix the connection first."
+    }
   }
 }

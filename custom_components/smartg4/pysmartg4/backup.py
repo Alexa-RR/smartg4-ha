@@ -157,6 +157,34 @@ async def read_page(
     return FlashPage.parse(packet.payload)
 
 
+def stage_page(bus: SmartG4Bus, target: DeviceAddress, page: FlashPage) -> None:
+    """Send one page to a device in 0xDC15 format (restore staging).
+
+    Sending a page whose content is identical to the device's current
+    flash is a no-op regardless of how the device treats staging.
+    """
+    payload = (
+        page.number.to_bytes(2, "big")
+        + bytes([page.flag])
+        + page.address.to_bytes(3, "big")
+        + page.data
+    )
+    bus.send(target, 0xDC15, payload=payload)
+
+
+async def commit_restore(
+    bus: SmartG4Bus, target: DeviceAddress, packages: int, timeout: float = 5.0
+):
+    """DANGER — commit a restore (0xDC16 → ack 0xDC17). UNVERIFIED on real
+    hardware: the exact semantics of the page count and the ordering
+    contract are inferred from the SDK surface, not yet observed live.
+    Never call this without a fresh full backup of the target and explicit
+    user consent."""
+    return await bus.request(
+        target, 0xDC16, {"packages": packages}, timeout=timeout, retries=1
+    )
+
+
 async def backup_device(
     bus: SmartG4Bus,
     target: DeviceAddress,
@@ -169,12 +197,31 @@ async def backup_device(
     backup = DeviceBackup(
         subnet=target.subnet, device=target.device, device_type=device_type
     )
-    for number in range(1, total + 1):
-        backup.pages.append(await read_page(bus, target, number))
-        if progress is not None:
-            result = progress(number, total)
-            if asyncio.iscoroutine(result):
-                await result
-        # A short gap keeps the RS-485 side from re-colliding.
-        await asyncio.sleep(inter_page_delay)
+    pages: dict[int, FlashPage] = {}
+    missing = list(range(1, total + 1))
+    # Transient dead spells happen on a busy bus — sweep the missing set
+    # up to three times before giving up.
+    for sweep in range(3):
+        still_missing: list[int] = []
+        for number in missing:
+            try:
+                pages[number] = await read_page(bus, target, number)
+            except (TimeoutError, asyncio.TimeoutError):
+                still_missing.append(number)
+            if progress is not None:
+                result = progress(len(pages), total)
+                if asyncio.iscoroutine(result):
+                    await result
+            # A short gap keeps the RS-485 side from re-colliding.
+            await asyncio.sleep(inter_page_delay)
+        missing = still_missing
+        if not missing:
+            break
+        await asyncio.sleep(2.0)  # let the bus drain before the next sweep
+    if missing:
+        raise TimeoutError(
+            f"could not read pages {missing[:10]}{'...' if len(missing) > 10 else ''} "
+            f"from {target} after 3 sweeps"
+        )
+    backup.pages = [pages[n] for n in sorted(pages)]
     return backup
