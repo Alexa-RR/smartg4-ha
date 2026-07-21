@@ -71,6 +71,10 @@ class SmartG4Bus(asyncio.DatagramProtocol):
         loop = asyncio.get_running_loop()
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        if hasattr(socket, "SO_REUSEPORT"):
+            # Lets several S-BUS tools (add-on, HA integration, CLI tools)
+            # share port 6000 on one host; broadcasts reach all of them.
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         sock.bind(("", self.port))
         await loop.create_datagram_endpoint(lambda: self, sock=sock)
@@ -152,8 +156,14 @@ class SmartG4Bus(asyncio.DatagramProtocol):
         payload: bytes = b"",
         timeout: float = 2.0,
         retries: int = 2,
+        match: Callable[[Packet], bool] | None = None,
     ) -> Packet:
-        """Send a command and await the matching response from the target."""
+        """Send a command and await the matching response from the target.
+
+        `match` optionally filters response payloads — needed when devices
+        emit duplicate responses (observed live) and replies must be paired
+        with a specific request, e.g. a flash page number.
+        """
         response = commands.response_opcode(opcode)
         if response is None:
             raise ValueError(f"opcode {opcode:#06x} has no known response code")
@@ -162,6 +172,7 @@ class SmartG4Bus(asyncio.DatagramProtocol):
             return (
                 packet.opcode == response
                 and (target.is_broadcast or packet.source == target)
+                and (match is None or match(packet))
             )
 
         last_error: Exception | None = None

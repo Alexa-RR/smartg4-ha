@@ -263,6 +263,36 @@ COMMANDS: dict[int, dict[str, Any]] = {
             "remark": p.decode("ascii", "replace").rstrip("\x00 ")
         },
     },
+    # 0x0010 Write device remark (name): 20 bytes, space-padded ASCII.
+    0x0010: {
+        "name": "WriteDeviceRemark",
+        "encode": lambda d: d["remark"].encode("ascii")[:20].ljust(20, b" "),
+        "response": 0x0011,
+    },
+    0x0011: {"name": "WriteDeviceRemarkResponse"},
+    # 0xDC1x device flash backup family (see backup.py; confirmed live).
+    0xDC10: {"name": "ReadBackupInfo", "response": 0xDC11},
+    0xDC11: {
+        "name": "ReadBackupInfoResponse",
+        "parse": lambda p: {
+            "success": p[0] == 0xF8,
+            "total_pages": int.from_bytes(p[1:3], "big"),
+        },
+    },
+    0xDC14: {
+        "name": "ReadFlashPage",
+        "encode": lambda d: int(d["package"]).to_bytes(2, "big"),
+        "response": 0xDC15,
+    },
+    0xDC15: {
+        "name": "ReadFlashPageResponse",
+        "parse": lambda p: {
+            "package": int.from_bytes(p[0:2], "big"),
+            "flag": p[2],
+            "address": int.from_bytes(p[3:6], "big"),
+            "data": p[6:].hex(),
+        },
+    },
     # 0xF003 Read MAC address — answers 0xF004 with MAC + remark (name).
     0xF003: {"name": "ReadMACAddress", "response": 0xF004},
     0xF004: {
