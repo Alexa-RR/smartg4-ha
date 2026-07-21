@@ -1,0 +1,12 @@
+{
+  "domain": "smartg4",
+  "name": "Smart-G4 (S-BUS)",
+  "codeowners": ["@Alexa-RR"],
+  "config_flow": true,
+  "documentation": "https://github.com/Alexa-RR/smartg4-ha",
+  "integration_type": "hub",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/Alexa-RR/smartg4-ha/issues",
+  "requirements": [],
+  "version": "0.1.0"
+}

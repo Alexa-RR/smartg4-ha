@@ -1,0 +1,21 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to the S-BUS gateway",
+        "description": "The scan broadcasts on UDP port 6000 and takes the chosen number of seconds. Home Assistant must be on the same LAN subnet as the RSIP / Z-Audio gateway.",
+        "data": {
+          "gateway": "Gateway or broadcast IP",
+          "scan_duration": "Bus scan duration (seconds)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not bind UDP port 6000 — is another S-BUS tool running?",
+      "no_devices": "No devices answered the bus scan."
+    },
+    "abort": {
+      "already_configured": "This gateway is already configured."
+    }
+  }
+}
