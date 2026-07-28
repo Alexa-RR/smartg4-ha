@@ -21,6 +21,18 @@ def _status_byte(value: int) -> bool | None:
     return {0xF8: True, 0xF5: False}.get(value)
 
 
+def _encode_name(name: str) -> bytes:
+    from .naming import encode_name
+
+    return encode_name(name)
+
+
+def _decode_name(raw: bytes) -> str | None:
+    from .naming import decode_name
+
+    return decode_name(raw)
+
+
 def _channel_bitmask(data: bytes, count: int) -> list[dict[str, Any]]:
     channels: list[dict[str, Any]] = []
     for i, byte in enumerate(data):
@@ -259,14 +271,12 @@ COMMANDS: dict[int, dict[str, Any]] = {
     # in the frame header.
     0x000F: {
         "name": "ScanDeviceOnlineResponse",
-        "parse": lambda p: {
-            "remark": p.decode("ascii", "replace").rstrip("\x00 ")
-        },
+        "parse": lambda p: {"remark": _decode_name(p) or ""},
     },
-    # 0x0010 Write device remark (name): 20 bytes, space-padded ASCII.
+    # 0x0010 Write device remark (name): 20 bytes, space-padded.
     0x0010: {
         "name": "WriteDeviceRemark",
-        "encode": lambda d: d["remark"].encode("ascii")[:20].ljust(20, b" "),
+        "encode": lambda d: _encode_name(d["remark"]),
         "response": 0x0011,
     },
     0x0011: {"name": "WriteDeviceRemarkResponse"},
@@ -278,6 +288,14 @@ COMMANDS: dict[int, dict[str, Any]] = {
             "success": p[0] == 0xF8,
             "total_pages": int.from_bytes(p[1:3], "big"),
         },
+    },
+    0xDC12: {
+        "name": "WriteFlashPage",
+        "response": 0xDC13,
+    },
+    0xDC13: {
+        "name": "WriteFlashPageResponse",
+        "parse": lambda p: {"raw": p.hex()},
     },
     0xDC14: {
         "name": "ReadFlashPage",
@@ -304,13 +322,72 @@ COMMANDS: dict[int, dict[str, Any]] = {
         "name": "DeviceRestoreResponse",
         "parse": lambda p: {"raw": p.hex()},
     },
+    # Curtain/shutter configuration (SDK: Read/Write_Curtain_Control_Enabled).
+    # Response: [enabled_bitmask, running_time per group...] — see curtains.py
+    0xDC23: {"name": "ReadCurtainConfig", "response": 0xDC24},
+    0xDC24: {
+        "name": "ReadCurtainConfigResponse",
+        "parse": lambda p: {
+            "enabled_mask": p[0] if p else 0,
+            "running_times": list(p[1:]),
+        },
+    },
+    # --- Observed live, absent from the vendor SDK ------------------------
+    # 0x0286: an SB-6BS panel emits this to <subnet>.255 with an empty
+    # payload at the same instant as the button's own command, once per
+    # press. Treated as a "button pressed" marker; it carries no button
+    # number, so which button it was still comes from the command(s).
+    0x0286: {"name": "PanelButtonEvent"},
+    # 0xF036: relay modules broadcast this every few minutes, payload 0x00.
+    # Purpose unconfirmed — looks like a keepalive.
+    0xF036: {"name": "ModuleHeartbeat"},
+    # --- Names (remarks) -------------------------------------------------
+    # Zone/area remark. Live: 0xF00A ch1 -> "Basement"; a non-existent
+    # zone answers with 0xF5 in the number field.
+    0xF00A: {
+        "name": "ReadZoneRemark",
+        "encode": lambda d: bytes([d["zone"]]),
+        "response": 0xF00B,
+    },
+    0xF00B: {
+        "name": "ReadZoneRemarkResponse",
+        "parse": lambda p: {
+            "zone": p[0],
+            "remark": _decode_name(p[1:]),
+        },
+    },
+    0xF00C: {
+        "name": "WriteZoneRemark",
+        "encode": lambda d: bytes([d["zone"]]) + _encode_name(d["remark"]),
+        "response": 0xF00D,
+    },
+    0xF00D: {"name": "WriteZoneRemarkResponse"},
+    # Channel remark — the per-circuit names ("Drape U", "AC Mamad").
+    0xF00E: {
+        "name": "ReadChannelRemark",
+        "encode": lambda d: bytes([d["channel"]]),
+        "response": 0xF00F,
+    },
+    0xF00F: {
+        "name": "ReadChannelRemarkResponse",
+        "parse": lambda p: {
+            "channel": p[0],
+            "remark": _decode_name(p[1:]),
+        },
+    },
+    0xF010: {
+        "name": "WriteChannelRemark",
+        "encode": lambda d: bytes([d["channel"]]) + _encode_name(d["remark"]),
+        "response": 0xF011,
+    },
+    0xF011: {"name": "WriteChannelRemarkResponse"},
     # 0xF003 Read MAC address — answers 0xF004 with MAC + remark (name).
     0xF003: {"name": "ReadMACAddress", "response": 0xF004},
     0xF004: {
         "name": "ReadMACAddressResponse",
         "parse": lambda p: {
             "mac": ":".join(f"{b:02x}" for b in p[0:8]),
-            "remark": p[8:].split(b"\x00")[0].decode("ascii", "replace"),
+            "remark": _decode_name(p[8:]) or "",
         },
     },
 }

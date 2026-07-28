@@ -25,6 +25,9 @@ async def async_setup_entry(
         if not channels:
             continue
         for channel in range(1, channels + 1):
+            # Shutter channels belong to a cover entity, not two switches.
+            if hub.is_curtain_channel(device["address"], channel):
+                continue
             entities.append(SmartG4Switch(hub, device, channel))
     async_add_entities(entities)
 
@@ -39,7 +42,7 @@ class SmartG4Switch(SwitchEntity):
         self._hub = hub
         self._address: str = device["address"]
         self._channel = channel
-        self._attr_name = f"Channel {channel}"
+        self._attr_name = hub.channel_name(self._address, channel)
         self._attr_unique_id = (
             f"{DOMAIN}_{self._address.replace('.', '_')}_ch{channel}"
         )

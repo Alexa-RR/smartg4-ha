@@ -10,6 +10,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from .const import (
+    CHANNEL_COUNTS,
     COMMAND_OPCODES,
     EVENT_COMMAND,
     POLL_INTERVAL,
@@ -17,6 +18,8 @@ from .const import (
     SIGNAL_UPDATE,
 )
 from .pysmartg4 import SmartG4Bus, opcode_name
+from .pysmartg4.curtains import read_curtain_config
+from .pysmartg4.naming import read_channel_names
 from .pysmartg4.packet import DeviceAddress, Packet
 
 _LOGGER = logging.getLogger(__name__)
@@ -33,13 +36,63 @@ class SmartG4Hub:
         self.bus = SmartG4Bus(gateway=gateway)
         # (address str, channel number) -> bool | None
         self.states: dict[tuple[str, int], bool | None] = {}
+        # address -> [{group, up_channel, down_channel, travel_time}]
+        self.curtains: dict[str, list[dict[str, Any]]] = {}
+        # (address, channel) -> name stored in the module
+        self.names: dict[tuple[str, int], str] = {}
         self._unsubscribe = None
         self._poll_task: asyncio.Task | None = None
 
     async def async_start(self) -> None:
         await self.bus.connect()
         self._unsubscribe = self.bus.on_packet(self._on_packet)
+        await self._async_load_config()
         self._poll_task = self.hass.loop.create_task(self._poll_loop())
+
+    async def _async_load_config(self) -> None:
+        """Ask each output module for its channel names and shutter pairs."""
+        for device in self.devices:
+            channels = CHANNEL_COUNTS.get(int(device["device_type"], 16))
+            if not channels:
+                continue
+            address = device["address"]
+            target = DeviceAddress.parse(address)
+            try:
+                names = await read_channel_names(self.bus, target, channels)
+            except Exception:  # noqa: BLE001 - config reads are best-effort
+                names = []
+            for index, name in enumerate(names, start=1):
+                if name:
+                    self.names[(address, index)] = name
+            try:
+                groups = await read_curtain_config(self.bus, target)
+            except Exception:  # noqa: BLE001
+                groups = []
+            if groups:
+                self.curtains[address] = [g.as_dict() for g in groups]
+                _LOGGER.debug(
+                    "%s: %d shutter group(s) configured", address, len(groups)
+                )
+
+    def channel_name(
+        self, address: str, channel: int, strip_updown: bool = False
+    ) -> str:
+        """The module's own name for a channel, else a numbered fallback."""
+        name = self.names.get((address, channel))
+        if not name:
+            return f"Channel {channel}"
+        if strip_updown:
+            # "Drape Salon U" and "... D" are one shutter, not two entities.
+            for suffix in (" U", " D", " Up", " Down"):
+                if name.endswith(suffix):
+                    return name[: -len(suffix)].strip()
+        return name
+
+    def is_curtain_channel(self, address: str, channel: int) -> bool:
+        return any(
+            channel in (g["up_channel"], g["down_channel"])
+            for g in self.curtains.get(address, [])
+        )
 
     async def async_stop(self) -> None:
         if self._unsubscribe:

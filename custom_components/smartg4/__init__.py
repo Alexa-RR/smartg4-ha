@@ -13,7 +13,7 @@ from .const import CONF_DEVICES, CONF_GATEWAY, DEFAULT_SCAN_DURATION, DOMAIN
 from .hub import SmartG4Hub
 from .pysmartg4.discovery import discover, merge_device_lists
 
-PLATFORMS = [Platform.SWITCH]
+PLATFORMS = [Platform.COVER, Platform.SWITCH]
 
 type SmartG4ConfigEntry = ConfigEntry[SmartG4Hub]
 
