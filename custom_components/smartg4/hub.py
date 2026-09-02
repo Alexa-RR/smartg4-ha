@@ -77,7 +77,9 @@ class SmartG4Hub:
             except Exception:  # noqa: BLE001
                 groups = []
             if groups:
-                self.curtains[address] = [g.as_dict() for g in groups]
+                self.curtains[address] = [
+                    self._orient_group(address, g.as_dict()) for g in groups
+                ]
                 _LOGGER.debug(
                     "%s: %d shutter group(s) configured", address, len(groups)
                 )
@@ -91,6 +93,55 @@ class SmartG4Hub:
                     address,
                     len(self.curtains[address]),
                 )
+
+    # Channel-name direction markers. A shutter's two relays are labelled
+    # by the module itself (e.g. "Drape Office U" / "... D", Hebrew עולה /
+    # יורד). The default group layout assumes up=odd/down=even, but some
+    # modules are wired the other way — and not even uniformly (1.107 has
+    # both orientations), so the label is the only reliable source.
+    _UP_MARKERS = (" u", " up", "עולה", "עליה", "עלייה")
+    _DOWN_MARKERS = (" d", " down", "יורד", "ירידה")
+
+    @classmethod
+    def _channel_direction(cls, name: str | None) -> str | None:
+        """'up', 'down', or None from a channel's own label."""
+        if not name:
+            return None
+        low = name.lower()
+        for marker in cls._DOWN_MARKERS:
+            if low.endswith(marker) or marker in name:
+                return "down"
+        for marker in cls._UP_MARKERS:
+            if low.endswith(marker) or marker in name:
+                return "up"
+        return None
+
+    def _orient_group(self, address: str, group: dict[str, Any]) -> dict[str, Any]:
+        """Fix a shutter's up/down channels using the module's own labels.
+
+        Falls back to the incoming (up=odd) layout when the labels are
+        silent, and to a cached orientation when even the names are
+        missing this boot, so a nameless read never flips a shutter.
+        """
+        up, down = group["up_channel"], group["down_channel"]
+        up_dir = self._channel_direction(self.names.get((address, up)))
+        down_dir = self._channel_direction(self.names.get((address, down)))
+        if (up_dir == "down" and down_dir in ("up", None)) or (
+            down_dir == "up" and up_dir is None
+        ):
+            up, down = down, up
+        elif up_dir is None and down_dir is None:
+            cached = next(
+                (
+                    c
+                    for c in self._cached_curtains.get(address, [])
+                    if {c["up_channel"], c["down_channel"]} == {up, down}
+                ),
+                None,
+            )
+            if cached:
+                up, down = cached["up_channel"], cached["down_channel"]
+        return {**group, "up_channel": up, "down_channel": down}
 
     def channel_name(
         self, address: str, channel: int, strip_updown: bool = False

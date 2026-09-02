@@ -22,14 +22,32 @@ was captured against, because the destination lives inside the
 obfuscated header. Capturing one exchange per panel model/address is
 enough to program that panel.
 
-The header is NOT a simple per-position XOR pad, so a captured frame
-cannot be retargeted to another panel by patching the destination
-bytes. Confirmed 2026-09-02: byte-patching the destination produced
-0/6 replies from four different same-type (0x0119) panels while the
-unmodified frame read its own panel 5/6, and the algebra is internally
-inconsistent (the PC device byte would have to be both 0xFD and 0x49
-across two positions). Retargeting needs either the header cipher
-reversed or a fresh capture per panel.
+Retargeting a captured frame to another panel is not YET possible, but
+the header is closer to solved than "opaque". Structure recovered
+2026-09-02 (single-panel corpus, device 1.38 only):
+
+  - Bytes 4-5 of the header are the opcode, essentially PLAINTEXT
+    (0xB4 followed by the logical low byte, e.g. b442 read / b402 write).
+  - Byte 0 (=0x57) and byte 6 (=0xD5) are the subnet field; both are
+    invariant across all captured frames (only subnet 1 was ever seen).
+  - Bytes 1 and 7 carry the source and TARGET device ids. Byte 7 is the
+    one to change to point at another panel.
+  - The obfuscation is NOT a single global XOR pad: under that
+    assumption the PC's device byte is pinned to both 0xFD (from pos 1)
+    and 0x49 (from pos 7). That contradiction DISAPPEARS under a
+    per-position, direction-keyed XOR, which the data is fully
+    consistent with (request tgtDev pad = 0xE1: 0x26 ^ 0xC7).
+
+Why a naive byte-patch still failed live (0/6 replies from four
+retargeted 0x0119 panels): with only one target device sampled (0x26),
+XOR is indistinguishable from an affine or table map, and an affine map
+would give a wrong byte for every device except 0x26.
+
+To close it, capture ONE Smart Cloud read-button exchange (b442/b462)
+against any second panel with a different device id (e.g. 1.40) — that
+second calibration point discriminates XOR vs affine and, if linear,
+solves the transform outright, after which one capture programs every
+panel. See tools/capture.py.
 
 Observed operations (payloads, plaintext):
 
