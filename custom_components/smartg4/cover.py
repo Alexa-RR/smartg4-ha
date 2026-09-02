@@ -34,6 +34,12 @@ from .hub import SmartG4Hub
 
 PARALLEL_UPDATES = 0
 
+# A real shutter runs for tens of seconds. Relay reads that change within
+# this window of a movement starting are the optimistic write and the
+# module's polled/broadcast state racing at a movement edge — noise, not a
+# genuine stop or reversal. Ignoring them stops the state from thrashing.
+MIN_MOVE_TIME = 2.0
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -136,10 +142,18 @@ class SmartG4Cover(CoverEntity, RestoreEntity):
         up = self._hub.states.get((self._address, self._up))
         down = self._hub.states.get((self._address, self._down))
         moving = "open" if up else "close" if down else None
-        if moving != self._moving:
-            self._settle()
-            if moving:
-                self._start(moving, target=100.0 if moving == "open" else 0.0)
+        if moving == self._moving:
+            return
+        if (
+            self._moving is not None
+            and time.monotonic() - self._started < MIN_MOVE_TIME
+        ):
+            # Too soon after this movement began to be a real change — the
+            # relays are just settling. Ignore, or we thrash the estimate.
+            return
+        self._settle()
+        if moving:
+            self._start(moving, target=100.0 if moving == "open" else 0.0)
         self.async_write_ha_state()
 
     # -- movement ------------------------------------------------------------
@@ -185,15 +199,22 @@ class SmartG4Cover(CoverEntity, RestoreEntity):
                 )
                 if reached:
                     if 0 < self._target < 100:
-                        await self._hub.async_set_channel(
-                            self._address, self._up, False
-                        )
-                        await self._hub.async_set_channel(
-                            self._address, self._down, False
-                        )
+                        # Our own stop: suppress the resulting relay echo so
+                        # _handle_update doesn't cancel this task mid-finish.
+                        self._commanding = True
+                        try:
+                            await self._hub.async_set_channel(
+                                self._address, self._up, False
+                            )
+                            await self._hub.async_set_channel(
+                                self._address, self._down, False
+                            )
+                        finally:
+                            self._commanding = False
                     self._position = self._target
                     self._moving = None
                     self._target = None
+                    self._task = None
                     self.async_write_ha_state()
                     return
                 self.async_write_ha_state()
