@@ -5,6 +5,10 @@ DOMAIN = "smartg4"
 CONF_GATEWAY = "gateway"
 CONF_DEVICES = "devices"
 CONF_SCAN_DURATION = "scan_duration"
+# Last-known shutter topology, cached so a flaky boot (a module that
+# fails to answer 0xDC23 that boot) doesn't demote a shutter back to two
+# raw switch entities. address -> [curtain group dicts].
+CONF_CURTAINS = "curtains"
 
 DEFAULT_GATEWAY = "255.255.255.255"
 DEFAULT_SCAN_DURATION = 30

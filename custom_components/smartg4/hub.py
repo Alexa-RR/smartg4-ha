@@ -29,7 +29,11 @@ class SmartG4Hub:
     """One S-BUS connection shared by all entities of a config entry."""
 
     def __init__(
-        self, hass: HomeAssistant, gateway: str, devices: list[dict[str, Any]]
+        self,
+        hass: HomeAssistant,
+        gateway: str,
+        devices: list[dict[str, Any]],
+        cached_curtains: dict[str, list[dict[str, Any]]] | None = None,
     ) -> None:
         self.hass = hass
         self.devices = devices
@@ -38,6 +42,10 @@ class SmartG4Hub:
         self.states: dict[tuple[str, int], bool | None] = {}
         # address -> [{group, up_channel, down_channel, travel_time}]
         self.curtains: dict[str, list[dict[str, Any]]] = {}
+        # Last-known shutter topology from the config entry; used as a
+        # fallback when a module doesn't answer 0xDC23 this boot so entity
+        # topology stays stable across restarts.
+        self._cached_curtains = cached_curtains or {}
         # (address, channel) -> name stored in the module
         self.names: dict[tuple[str, int], str] = {}
         self._unsubscribe = None
@@ -72,6 +80,16 @@ class SmartG4Hub:
                 self.curtains[address] = [g.as_dict() for g in groups]
                 _LOGGER.debug(
                     "%s: %d shutter group(s) configured", address, len(groups)
+                )
+            elif self._cached_curtains.get(address):
+                # The module didn't answer this boot. Keep its known
+                # shutters rather than silently turning them into switches.
+                self.curtains[address] = self._cached_curtains[address]
+                _LOGGER.warning(
+                    "%s: no shutter config answer this boot — reusing "
+                    "%d cached shutter group(s)",
+                    address,
+                    len(self.curtains[address]),
                 )
 
     def channel_name(

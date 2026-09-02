@@ -22,6 +22,15 @@ was captured against, because the destination lives inside the
 obfuscated header. Capturing one exchange per panel model/address is
 enough to program that panel.
 
+The header is NOT a simple per-position XOR pad, so a captured frame
+cannot be retargeted to another panel by patching the destination
+bytes. Confirmed 2026-09-02: byte-patching the destination produced
+0/6 replies from four different same-type (0x0119) panels while the
+unmodified frame read its own panel 5/6, and the algebra is internally
+inconsistent (the PC device byte would have to be both 0xFD and 0x49
+across two positions). Retargeting needs either the header cipher
+reversed or a fresh capture per panel.
+
 Observed operations (payloads, plaintext):
 
     read button      -> [button, page]

@@ -16,7 +16,9 @@ import asyncio
 import time
 
 from homeassistant.components.cover import (
+    ATTR_CURRENT_POSITION,
     ATTR_POSITION,
+    CoverDeviceClass,
     CoverEntity,
     CoverEntityFeature,
 )
@@ -24,6 +26,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 
 from . import SmartG4ConfigEntry
 from .const import DOMAIN, SIGNAL_UPDATE
@@ -46,11 +49,12 @@ async def async_setup_entry(
     async_add_entities(entities)
 
 
-class SmartG4Cover(CoverEntity):
+class SmartG4Cover(CoverEntity, RestoreEntity):
     """One shutter: an up channel, a down channel and a travel time."""
 
     _attr_has_entity_name = True
     _attr_should_poll = False
+    _attr_device_class = CoverDeviceClass.SHUTTER
     _attr_supported_features = (
         CoverEntityFeature.OPEN
         | CoverEntityFeature.CLOSE
@@ -81,6 +85,9 @@ class SmartG4Cover(CoverEntity):
         self._started: float = 0.0
         self._target: float | None = None
         self._task: asyncio.Task | None = None
+        # True while we are driving the relays ourselves, so the resulting
+        # state echo on SIGNAL_UPDATE doesn't restart movement tracking.
+        self._commanding: bool = False
 
     # -- state ---------------------------------------------------------------
 
@@ -105,6 +112,15 @@ class SmartG4Cover(CoverEntity):
         return self._moving == "close"
 
     async def async_added_to_hass(self) -> None:
+        # Restore the last estimated position so a restart doesn't blank
+        # the shutter out to "unknown" until its next full run.
+        if (last := await self.async_get_last_state()) is not None:
+            restored = last.attributes.get(ATTR_CURRENT_POSITION)
+            if restored is not None:
+                try:
+                    self._position = float(restored)
+                except (TypeError, ValueError):
+                    self._position = None
         self.async_on_remove(
             async_dispatcher_connect(
                 self.hass, SIGNAL_UPDATE.format(self._address), self._handle_update
@@ -114,6 +130,9 @@ class SmartG4Cover(CoverEntity):
     @callback
     def _handle_update(self) -> None:
         """Follow the relays: a wall press moves the shutter too."""
+        if self._commanding:
+            # Our own command drove these relays; we already track it.
+            return
         up = self._hub.states.get((self._address, self._up))
         down = self._hub.states.get((self._address, self._down))
         moving = "open" if up else "close" if down else None
@@ -186,22 +205,34 @@ class SmartG4Cover(CoverEntity):
 
     async def async_open_cover(self, **kwargs) -> None:
         self._settle()
-        await self._hub.async_set_channel(self._address, self._down, False)
-        await self._hub.async_set_channel(self._address, self._up, True)
+        self._commanding = True
+        try:
+            await self._hub.async_set_channel(self._address, self._down, False)
+            await self._hub.async_set_channel(self._address, self._up, True)
+        finally:
+            self._commanding = False
         self._start("open", 100.0)
         self.async_write_ha_state()
 
     async def async_close_cover(self, **kwargs) -> None:
         self._settle()
-        await self._hub.async_set_channel(self._address, self._up, False)
-        await self._hub.async_set_channel(self._address, self._down, True)
+        self._commanding = True
+        try:
+            await self._hub.async_set_channel(self._address, self._up, False)
+            await self._hub.async_set_channel(self._address, self._down, True)
+        finally:
+            self._commanding = False
         self._start("close", 0.0)
         self.async_write_ha_state()
 
     async def async_stop_cover(self, **kwargs) -> None:
         self._settle()
-        await self._hub.async_set_channel(self._address, self._up, False)
-        await self._hub.async_set_channel(self._address, self._down, False)
+        self._commanding = True
+        try:
+            await self._hub.async_set_channel(self._address, self._up, False)
+            await self._hub.async_set_channel(self._address, self._down, False)
+        finally:
+            self._commanding = False
         self.async_write_ha_state()
 
     async def async_set_cover_position(self, **kwargs) -> None:

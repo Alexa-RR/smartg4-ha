@@ -9,7 +9,13 @@ from homeassistant.helpers import config_validation as cv
 
 import voluptuous as vol
 
-from .const import CONF_DEVICES, CONF_GATEWAY, DEFAULT_SCAN_DURATION, DOMAIN
+from .const import (
+    CONF_CURTAINS,
+    CONF_DEVICES,
+    CONF_GATEWAY,
+    DEFAULT_SCAN_DURATION,
+    DOMAIN,
+)
 from .hub import SmartG4Hub
 from .pysmartg4.discovery import discover, merge_device_lists
 
@@ -39,9 +45,21 @@ async def _async_rescan_entry(
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: SmartG4ConfigEntry) -> bool:
-    hub = SmartG4Hub(hass, entry.data[CONF_GATEWAY], entry.data[CONF_DEVICES])
+    hub = SmartG4Hub(
+        hass,
+        entry.data[CONF_GATEWAY],
+        entry.data[CONF_DEVICES],
+        cached_curtains=entry.data.get(CONF_CURTAINS, {}),
+    )
     await hub.async_start()
     entry.runtime_data = hub
+    # Persist the shutter topology we just discovered (merged with any
+    # cached fallback) so the next boot is stable even if a module is
+    # briefly unreachable.
+    if hub.curtains != entry.data.get(CONF_CURTAINS, {}):
+        hass.config_entries.async_update_entry(
+            entry, data={**entry.data, CONF_CURTAINS: hub.curtains}
+        )
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     async def rescan(call: ServiceCall) -> None:
