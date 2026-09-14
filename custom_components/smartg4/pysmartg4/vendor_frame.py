@@ -1,4 +1,10 @@
-"""Vendor button-programming frames (undocumented protocol variant).
+"""Vendor button-programming frames — capture-and-replay (SUPERSEDED).
+
+Superseded on 2026-09-15 by :mod:`pysmartg4.vendor_cipher` and
+:mod:`pysmartg4.vendor_program`: the header "obfuscation" described below was
+reversed from the Smart Cloud executable (per-byte rotate + XOR keyed by the
+string ``"SMARTBUS"``), so frames are now built from scratch for any panel and
+no capture is needed. This module is kept only as a fallback.
 
 The vendor's Smart Cloud programs panel buttons with frames that are NOT
 the documented S-BUS format: after the `SMARTCLOUD` signature they carry
@@ -21,33 +27,6 @@ Consequence and limitation: a template can only address the device it
 was captured against, because the destination lives inside the
 obfuscated header. Capturing one exchange per panel model/address is
 enough to program that panel.
-
-Retargeting a captured frame to another panel is not YET possible, but
-the header is closer to solved than "opaque". Structure recovered
-2026-09-02 (single-panel corpus, device 1.38 only):
-
-  - Bytes 4-5 of the header are the opcode, essentially PLAINTEXT
-    (0xB4 followed by the logical low byte, e.g. b442 read / b402 write).
-  - Byte 0 (=0x57) and byte 6 (=0xD5) are the subnet field; both are
-    invariant across all captured frames (only subnet 1 was ever seen).
-  - Bytes 1 and 7 carry the source and TARGET device ids. Byte 7 is the
-    one to change to point at another panel.
-  - The obfuscation is NOT a single global XOR pad: under that
-    assumption the PC's device byte is pinned to both 0xFD (from pos 1)
-    and 0x49 (from pos 7). That contradiction DISAPPEARS under a
-    per-position, direction-keyed XOR, which the data is fully
-    consistent with (request tgtDev pad = 0xE1: 0x26 ^ 0xC7).
-
-Why a naive byte-patch still failed live (0/6 replies from four
-retargeted 0x0119 panels): with only one target device sampled (0x26),
-XOR is indistinguishable from an affine or table map, and an affine map
-would give a wrong byte for every device except 0x26.
-
-To close it, capture ONE Smart Cloud read-button exchange (b442/b462)
-against any second panel with a different device id (e.g. 1.40) — that
-second calibration point discriminates XOR vs affine and, if linear,
-solves the transform outright, after which one capture programs every
-panel. See tools/capture.py.
 
 Observed operations (payloads, plaintext):
 
