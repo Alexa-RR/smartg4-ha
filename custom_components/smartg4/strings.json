@@ -3,7 +3,38 @@
     "step": {
       "user": {
         "title": "Connect to the S-BUS gateway",
-        "description": "The scan broadcasts on UDP port 6000 and takes the chosen number of seconds. Home Assistant must be on the same LAN subnet as the RSIP / Z-Audio gateway.",
+        "description": "Home Assistant must be on the same LAN subnet as the RSIP / Z-Audio gateway. You can let the integration find the gateway for you, or enter its address yourself.",
+        "menu_options": {
+          "discover": "Find the gateway automatically",
+          "manual": "Enter the gateway IP manually"
+        }
+      },
+      "reconfigure": {
+        "title": "Change the S-BUS gateway",
+        "description": "Pick a new gateway address for this entry. Devices already configured are kept; the new gateway is verified with a bus scan first.",
+        "menu_options": {
+          "discover": "Find the gateway automatically",
+          "manual": "Enter the gateway IP manually"
+        }
+      },
+      "discover": {
+        "title": "Find the gateway",
+        "description": "A scan probe is broadcast on the LAN and every host that relays S-BUS module traffic back is listed as a gateway. Takes the chosen number of seconds.",
+        "data": {
+          "gateway_search": "Search duration (seconds)"
+        }
+      },
+      "select": {
+        "title": "Choose the gateway",
+        "description": "{count} gateway(s) answered. Pick one, or its subnet broadcast address if you have several gateways or other S-BUS tools on the LAN. The bus is then scanned for modules for the chosen number of seconds.",
+        "data": {
+          "gateway": "Gateway",
+          "scan_duration": "Bus scan duration (seconds)"
+        }
+      },
+      "manual": {
+        "title": "Enter the gateway",
+        "description": "The RSIP / Z-Audio gateway IP, or a broadcast address such as 192.168.1.255 (or 255.255.255.255). The bus is then scanned for modules on UDP port 6000 for the chosen number of seconds.",
         "data": {
           "gateway": "Gateway or broadcast IP",
           "scan_duration": "Bus scan duration (seconds)"
@@ -12,21 +43,60 @@
     },
     "error": {
       "cannot_connect": "Could not bind UDP port 6000 — is another S-BUS tool running?",
-      "no_devices": "No devices answered the bus scan."
+      "no_gateways": "No gateway relayed any module traffic. Check that Home Assistant is on the gateway's LAN, or enter the address manually.",
+      "no_devices": "No devices answered the bus scan through this gateway."
     },
     "abort": {
-      "already_configured": "This gateway is already configured."
+      "already_configured": "This gateway is already configured.",
+      "reconfigure_successful": "Gateway updated; the integration is reloading."
     }
   },
   "options": {
     "step": {
       "init": {
+        "title": "Smart-G4 options",
+        "menu_options": {
+          "rescan": "Rescan the bus for new modules",
+          "discover": "Find the gateway automatically",
+          "manual": "Change the gateway IP manually"
+        }
+      },
+      "rescan": {
         "title": "Rescan the bus",
         "description": "Scan the S-BUS again and add newly found modules. Existing devices are kept even if they miss this scan (replies are lossy). New modules appear as devices after an automatic reload.",
         "data": {
           "scan_duration": "Bus scan duration (seconds)"
         }
+      },
+      "discover": {
+        "title": "Find the gateway",
+        "description": "A scan probe is broadcast on the LAN and every host that relays S-BUS module traffic back is listed as a gateway. Takes the chosen number of seconds.",
+        "data": {
+          "gateway_search": "Search duration (seconds)"
+        }
+      },
+      "select": {
+        "title": "Choose the gateway",
+        "description": "{count} gateway(s) answered. Pick one, or its subnet broadcast address. The new gateway is verified with a bus scan before it replaces the current one, then the integration reloads.",
+        "data": {
+          "gateway": "Gateway",
+          "scan_duration": "Bus scan duration (seconds)"
+        }
+      },
+      "manual": {
+        "title": "Change the gateway",
+        "description": "The RSIP / Z-Audio gateway IP, or a broadcast address. The new gateway is verified with a bus scan before it replaces the current one, then the integration reloads.",
+        "data": {
+          "gateway": "Gateway or broadcast IP",
+          "scan_duration": "Bus scan duration (seconds)"
+        }
       }
+    },
+    "error": {
+      "cannot_connect": "Could not bind UDP port 6000 — is another S-BUS tool running?",
+      "no_gateways": "No gateway relayed any module traffic. Check that Home Assistant is on the gateway's LAN, or enter the address manually.",
+      "no_devices": "No devices answered the bus scan through this gateway.",
+      "already_configured": "Another Smart-G4 entry already uses this gateway."
     },
     "abort": {
       "not_loaded": "The integration is not loaded — fix the connection first."

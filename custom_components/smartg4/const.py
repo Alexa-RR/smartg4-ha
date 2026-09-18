@@ -37,3 +37,8 @@ COMMAND_OPCODES = {
     0xE3E0: "curtain",
     0xE3D8: "panel_control",
 }
+
+# Gateway auto-discovery: how long to listen for gateways relaying bus
+# traffic when the user doesn't know (or wants to change) the gateway IP.
+CONF_GATEWAY_SEARCH = "gateway_search"
+DEFAULT_GATEWAY_SEARCH = 5
