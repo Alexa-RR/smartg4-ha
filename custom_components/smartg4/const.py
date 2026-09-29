@@ -9,6 +9,12 @@ CONF_SCAN_DURATION = "scan_duration"
 # fails to answer 0xDC23 that boot) doesn't demote a shutter back to two
 # raw switch entities. address -> [curtain group dicts].
 CONF_CURTAINS = "curtains"
+# Last-known panel button tables (read live over the panel-programming
+# protocol), cached so button event entities survive a boot on which a
+# panel doesn't answer. address -> [{index, label, commands:[...]}].
+CONF_PANEL_BUTTONS = "panel_buttons"
+
+SIGNAL_PRESS = "smartg4_press_{}"
 
 DEFAULT_GATEWAY = "255.255.255.255"
 DEFAULT_SCAN_DURATION = 30
@@ -25,6 +31,32 @@ CHANNEL_COUNTS = {
 
 # Modules that answer ReadChannelStatus (0x0033) and can be polled.
 POLLABLE_TYPES = {0x01B8}
+
+
+def channel_count_for(device_type: int) -> int:
+    """Output channels for a module type.
+
+    Live-confirmed CHANNEL_COUNTS win; otherwise the vendor catalog (397
+    types from the Smart Cloud database) sizes modules we have never seen.
+    Panels and non-module devices yield 0 so they get no channel entities.
+    """
+    if device_type in CHANNEL_COUNTS:
+        return CHANNEL_COUNTS[device_type]
+    from .pysmartg4.device_catalog import lookup  # noqa: PLC0415
+
+    info = lookup(device_type)
+    if info and (info.is_dimmer or info.is_relay):
+        return info.channels
+    return 0
+
+
+def is_dimmer_type(device_type: int) -> bool:
+    """True when the vendor catalog classes this module as a dimmer, so its
+    channels become light entities with brightness instead of switches."""
+    from .pysmartg4.device_catalog import lookup  # noqa: PLC0415
+
+    info = lookup(device_type)
+    return bool(info and info.is_dimmer)
 
 POLL_INTERVAL = 30  # seconds
 

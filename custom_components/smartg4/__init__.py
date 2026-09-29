@@ -13,13 +13,20 @@ from .const import (
     CONF_CURTAINS,
     CONF_DEVICES,
     CONF_GATEWAY,
+    CONF_PANEL_BUTTONS,
     DEFAULT_SCAN_DURATION,
     DOMAIN,
 )
 from .hub import SmartG4Hub
 from .pysmartg4.discovery import discover, merge_device_lists
 
-PLATFORMS = [Platform.COVER, Platform.SWITCH]
+PLATFORMS = [
+    Platform.COVER,
+    Platform.EVENT,
+    Platform.LIGHT,
+    Platform.NUMBER,
+    Platform.SWITCH,
+]
 
 type SmartG4ConfigEntry = ConfigEntry[SmartG4Hub]
 
@@ -50,15 +57,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: SmartG4ConfigEntry) -> b
         entry.data[CONF_GATEWAY],
         entry.data[CONF_DEVICES],
         cached_curtains=entry.data.get(CONF_CURTAINS, {}),
+        cached_panel_buttons=entry.data.get(CONF_PANEL_BUTTONS, {}),
     )
     await hub.async_start()
     entry.runtime_data = hub
-    # Persist the shutter topology we just discovered (merged with any
-    # cached fallback) so the next boot is stable even if a module is
-    # briefly unreachable.
+    # Persist the shutter topology and panel button tables we just read
+    # (merged with any cached fallback) so the next boot is stable even if
+    # a module is briefly unreachable.
+    updates = {}
     if hub.curtains != entry.data.get(CONF_CURTAINS, {}):
+        updates[CONF_CURTAINS] = hub.curtains
+    if hub.panel_buttons != entry.data.get(CONF_PANEL_BUTTONS, {}):
+        updates[CONF_PANEL_BUTTONS] = hub.panel_buttons
+    if updates:
         hass.config_entries.async_update_entry(
-            entry, data={**entry.data, CONF_CURTAINS: hub.curtains}
+            entry, data={**entry.data, **updates}
         )
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 

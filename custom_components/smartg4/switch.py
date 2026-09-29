@@ -9,7 +9,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import SmartG4ConfigEntry
-from .const import CHANNEL_COUNTS, DOMAIN, SIGNAL_UPDATE
+from .const import DOMAIN, SIGNAL_UPDATE, channel_count_for, is_dimmer_type
 from .hub import SmartG4Hub
 
 
@@ -21,8 +21,10 @@ async def async_setup_entry(
     hub = entry.runtime_data
     entities: list[SmartG4Switch] = []
     for device in hub.devices:
-        channels = CHANNEL_COUNTS.get(int(device["device_type"], 16))
-        if not channels:
+        device_type = int(device["device_type"], 16)
+        channels = channel_count_for(device_type)
+        # Dimmer channels are light entities (brightness) — see light.py.
+        if not channels or is_dimmer_type(device_type):
             continue
         for channel in range(1, channels + 1):
             # Shutter channels belong to a cover entity, not two switches.
