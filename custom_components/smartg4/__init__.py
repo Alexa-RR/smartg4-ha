@@ -74,6 +74,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: SmartG4ConfigEntry) -> b
             entry, data={**entry.data, **updates}
         )
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    # Panels are read live in the background now that platforms exist, so a
+    # slow or silent panel never delays (and no longer fails) entry setup.
+    hub.start_panel_refresh(entry)
 
     async def rescan(call: ServiceCall) -> None:
         for loaded in hass.config_entries.async_loaded_entries(DOMAIN):

@@ -11,6 +11,7 @@ from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 from .const import (
     COMMAND_OPCODES,
+    CONF_PANEL_BUTTONS,
     EVENT_COMMAND,
     POLL_INTERVAL,
     POLLABLE_TYPES,
@@ -34,6 +35,14 @@ from .pysmartg4.vendor_program import (
     build_read_frame as build_panel_read_frame,
     parse_response as parse_panel_response,
 )
+
+# Panels answer programming/config frames (0xE000 reads, 0xE010/0xE012 LED)
+# only from the vendor PC identity: device 254 on the panel's own subnet,
+# announcing the virtual type 0xFFFE. The integration's own bus address is
+# ignored by panels (verified live), so these reads must use this identity.
+PROGRAM_SOURCE_DEVICE = 254
+PROGRAM_SOURCE_TYPE = 0xFFFE
+
 
 # Panel key function codes (KeyFunType) <-> the bus opcode a press emits, and
 # which parsed fields must match the stored command's p1/p2.
@@ -85,24 +94,77 @@ class SmartG4Hub:
         self.names: dict[tuple[str, int], str] = {}
         self._unsubscribe = None
         self._poll_task: asyncio.Task | None = None
+        self._panel_task: asyncio.Task | None = None
 
     async def async_start(self) -> None:
         await self.bus.connect()
         self._unsubscribe = self.bus.on_packet(self._on_packet)
         await self._async_load_config()
-        await self._async_load_panel_buttons()
-        await self._async_load_panel_led()
+        # Panel button and LED reads are slow (many 0xE000/0xE010 exchanges,
+        # each with its own timeout) and must NOT run inside config-entry
+        # setup: Home Assistant cancels an entry that takes too long to set
+        # up ("Bootstrap stage 2 timeout"). Seed the button tables from the
+        # cached copy so the event entities exist immediately, then read the
+        # panels live in the background (see start_panel_refresh).
+        self._seed_panel_buttons_from_cache()
         self._poll_task = self.hass.loop.create_task(self._poll_loop())
 
     # -- panel LED / backlight -----------------------------------------------
 
-    def _vendor_kw(self) -> dict[str, Any]:
+    def _vendor_kw(self, target: DeviceAddress) -> dict[str, Any]:
         return {
-            "source": self.bus.sender,
-            "source_type": self.bus.sender_type,
+            "source": DeviceAddress(target.subnet, PROGRAM_SOURCE_DEVICE),
+            "source_type": PROGRAM_SOURCE_TYPE,
             "source_ip": self.bus._local_ip,  # noqa: SLF001
             "retries": 1,
         }
+
+    def _seed_panel_buttons_from_cache(self) -> None:
+        """Populate button tables from the cached copy without bus I/O.
+
+        Lets the event entities be created at setup time; the live read in
+        the background then fills in / corrects the command mappings.
+        """
+        for device in self.devices:
+            device_type = int(device["device_type"], 16)
+            if not self.is_panel(device_type):
+                continue
+            address = device["address"]
+            cached = self._cached_panel_buttons.get(address)
+            if cached:
+                self.panel_buttons[address] = cached
+            else:
+                self.panel_buttons[address] = [
+                    {"index": i, "label": "", "commands": []}
+                    for i in range(1, self.panel_button_count(device_type) + 1)
+                ]
+
+    def start_panel_refresh(self, entry) -> None:
+        """Kick the background live read of panel buttons + LED levels.
+
+        Called after the entry's platforms are set up, so the dispatcher
+        update it fires lands on entities that already exist.
+        """
+        self._panel_task = self.hass.loop.create_task(
+            self._async_refresh_panels(entry)
+        )
+
+    async def _async_refresh_panels(self, entry) -> None:
+        try:
+            await self._async_load_panel_buttons()
+            await self._async_load_panel_led()
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - background best effort
+            _LOGGER.exception("smartg4: background panel read failed")
+            return
+        if self.panel_buttons != entry.data.get(CONF_PANEL_BUTTONS, {}):
+            self.hass.config_entries.async_update_entry(
+                entry,
+                data={**entry.data, CONF_PANEL_BUTTONS: self.panel_buttons},
+            )
+        for address in list(self.panel_buttons) + list(self.panel_led):
+            async_dispatcher_send(self.hass, SIGNAL_UPDATE.format(address))
 
     async def _async_load_panel_led(self) -> None:
         """Read each panel's stored LED / backlight levels (0xE010)."""
@@ -110,9 +172,10 @@ class SmartG4Hub:
             if not self.is_panel(int(device["device_type"], 16)):
                 continue
             address = device["address"]
+            target = DeviceAddress.parse(address)
             try:
                 levels = await read_led_levels(
-                    self.bus, DeviceAddress.parse(address), **self._vendor_kw()
+                    self.bus, target, **self._vendor_kw(target)
                 )
             except Exception:  # noqa: BLE001 - best effort
                 levels = None
@@ -138,7 +201,7 @@ class SmartG4Hub:
             _LOGGER.debug("%s: no 0xE3D9 ack for %s level", address, kind)
         try:
             stored = await persist_led_levels(
-                self.bus, target, **{kind: level}, **self._vendor_kw()
+                self.bus, target, **{kind: level}, **self._vendor_kw(target)
             )
         except Exception:  # noqa: BLE001
             stored = False
@@ -172,7 +235,8 @@ class SmartG4Hub:
         """One 0xE000 read (capture-free vendor protocol); None if silent."""
         frame = build_panel_read_frame(
             button, page, target,
-            source=self.bus.sender, source_type=self.bus.sender_type,
+            source=DeviceAddress(target.subnet, PROGRAM_SOURCE_DEVICE),
+            source_type=PROGRAM_SOURCE_TYPE,
             source_ip=self.bus._local_ip,  # noqa: SLF001
         )
         for _ in range(retries):
@@ -391,6 +455,9 @@ class SmartG4Hub:
         if self._poll_task:
             self._poll_task.cancel()
             self._poll_task = None
+        if self._panel_task:
+            self._panel_task.cancel()
+            self._panel_task = None
         self.bus.close()
 
     # -- state updates -------------------------------------------------------
